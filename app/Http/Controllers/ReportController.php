@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use DateTime;
+use App\Models\Teacher;
+use Carbon\CarbonPeriod;
 use Illuminate\Http\Request;
 use App\Models\OfficeHoliday;
 use Illuminate\Support\Carbon;
@@ -12,133 +14,131 @@ use PHPUnit\Logging\TeamCity\TeamCityLogger;
 
 class ReportController extends Controller
 {
-
-    public function attendance($date)
+    public function index(Request $request)
     {
-        $data = [];
-        $year = date('Y');
-        $month = date('m', strtotime($date)); // date = 2024-11-01
-        $daysInMonth = date('t', strtotime("$year-$month-01"));
+        $year = $request->filled('year') ? $request->year : now()->year;
+        $month = $request->filled('month') ? $request->month : now()->month;
+        $date = "{$year}-{$month}-01";
+        $teacher_id = $request->filled('teacher_id') ? $request->teacher_id : null;
 
-
-        $attendanceData = TeacherAttendance::whereYear('date', $year)
+        $attendanceData = TeacherAttendance::query()
+            ->select(['teacher_id', 'date', 'attendance'])
+            ->whereYear('date', $year)
             ->whereMonth('date', $month)
             ->with('teacher')
+            ->when($teacher_id, fn($q) => $q->where('teacher_id', $teacher_id))
             ->get()
             ->groupBy('teacher_id');
 
-        $leaves = TeacherLeaveApplication::where(function ($query) use ($year, $month) {
-            $query->whereYear('start_date', $year)
-                ->whereMonth('start_date', $month);
-        })->orWhere(function ($query) use ($year, $month) {
-            $query->whereYear('end_date', $year)
-                ->whereMonth('end_date', $month);
-        })->get();
+        return view('admin.report.index', compact('attendanceData', 'year', 'date', 'month', 'teacher_id'));
+    }
 
 
-        $holidays = OfficeHoliday::whereYear('start_date', $year)
-            ->whereMonth('start_date', $month)
-            ->orWhere(function ($query) use ($year, $month) {
-                $query->whereYear('end_date', $year)
-                    ->whereMonth('end_date', $month);
-            })->get();
+    public function update(Request $request, $teacherId)
+    {
+        $rawAttendance = $request->attendance;
+
+        $structured = [];
+
+        for ($i = 0; $i < count($rawAttendance) - 1; $i++) {
+            $current = $rawAttendance[$i];
+            $next = $rawAttendance[$i + 1];
+
+            if (isset($current['status']) && isset($next['date'])) {
+                $structured[] = [
+                    'status' => $current['status'],
+                    'date' => $next['date']
+                ];
+                $i++;
+            }
+        }
+
+        $request->merge(['attendance' => $structured]);
+
+        $request->validate([
+            'attendance.*.date' => 'required|date',
+            'attendance.*.status' => 'required',
+        ]);
+
+        foreach ($structured as $entry) {
+            TeacherAttendance::updateOrCreate(
+                ['teacher_id' => $teacherId, 'date' => $entry['date']],
+                ['attendance' => $entry['status']]
+            );
+        }
+
+        return redirect()->back()->with('success', 'Attendance updated successfully!');
+    }
 
 
+    public function monthlyReport(Request $request)
+    {
+        $month = $request->input('month', now()->format('Y-m'));
 
-        foreach ($attendanceData as $teacherId => $attendanceRecords) {
-            $teacherName = optional($attendanceRecords->first()->teacher)->name;
+        $start = Carbon::parse($month)->startOfMonth();
+        $end = Carbon::parse($month)->endOfMonth();
 
-            // not defind attendance as 'N'
-            $monthlyAttendance = array_fill(1, $daysInMonth, '');
+        $teacher_id = $request->teacher_id;
 
-            // $currentDay = date('j'); // Current day of the month (1-31)
+        $query = Teacher::query()
+            ->with(['attendances' => function ($q) use ($start, $end) {
+                $q->whereBetween('date', [$start, $end])
+                  ->select('teacher_id', 'date', 'attendance');
+            }]);
+
+        if($teacher_id){
+            $query->where('id', $teacher_id);
+        }
+
+        $teachers = $query->get();
+        $dates = [];
+
+        $period = \Carbon\CarbonPeriod::create($start, $end);
+
+        foreach ($period as $date) {
+            $dates[] = $date->toDateString();
+        }
 
 
-            // for ($day = 1; $day <= $daysInMonth; $day++) {
-            //     $monthlyAttendance[$day] = ($day < $currentDay) ? 'A' : '';
-            // }
+        $report = $teachers->map(function ($teacher) use ($dates) {
+            $attendanceMap = $teacher->attendances->keyBy('date');
 
+            $attendance = [];
 
-
-            //holidays as 'H'
-            foreach ($holidays as $holiday) {
-                $holidayStart = new DateTime(max("$year-$month-01", $holiday->start_date));
-                $holidayEnd = new DateTime(min("$year-$month-$daysInMonth", $holiday->end_date));
-
-                foreach (range(1, $daysInMonth) as $day) {
-                    $currentDate = new DateTime("$year-$month-" . str_pad($day, 2, '0', STR_PAD_LEFT));
-
-                    if ($currentDate >= $holidayStart && $currentDate <= $holidayEnd) {
-                        $monthlyAttendance[$day] = $holiday->holiday_type ?? 'H';
-                    }
-                }
+            foreach ($dates as $date) {
+                $attendance[] = $attendanceMap[$date]->attendance ?? '-';
             }
 
-            foreach ($leaves as $leave) {
-                if ($leave->teacher_id == $teacherId) {
-                    $leaveStart = Carbon::parse($leave->start_date);
-                    $leaveEnd = Carbon::parse($leave->end_date);
-
-                    $monthStart = Carbon::parse("$year-$month-01");
-                    $monthEnd = Carbon::parse("$year-$month-$daysInMonth");
-
-                    $effectiveStart = $leaveStart->greaterThanOrEqualTo($monthStart) ? $leaveStart : $monthStart;
-                    $effectiveEnd = $leaveEnd->lessThanOrEqualTo($monthEnd) ? $leaveEnd : $monthEnd;
-
-                    // leave as 'L'
-                    foreach (range(1, $daysInMonth) as $day) {
-                        $currentDate = Carbon::parse("$year-$month-$day");
-                        if ($currentDate->between($effectiveStart, $effectiveEnd)) {
-                            $monthlyAttendance[$day] = $leave->leave_type ?? 'L';
-                        }
-                    }
-                }
-            }
-
-            foreach ($attendanceRecords as $record) {
-                $day = (int) date('j', strtotime($record->date));
-                $monthlyAttendance[$day] = $this->attendanceStatus($record->attendance) ?? 'A';
-            }
-
-
-            $data[] = [
-                'name' => $teacherName,
-                'attendance' => $monthlyAttendance,
+            return [
+                'teacher' => $teacher,
+                'attendance' => array_combine($dates, $attendance),
             ];
+        });
+
+        $return_type = 'blade';
+        if ($request->print === 'print') {
+            $return_type = 'print';
         }
 
-        return $data;
-    }
-
-    protected function attendanceStatus($status)
-    {
-        if ($status == 'Present') {
-            return 'P';
-        } elseif ($status == 'Absent') {
-            return 'A';
-        } elseif ($status == 'Leave') {
-            return 'L';
-        } elseif ($status == 'Holiday') {
-            return 'H';
-        } else {
-            return 'A';
-        }
+        return $this->returnType($report, $month, $teacher_id, $return_type);
     }
 
 
+    protected function returnType($report, $month, $teacher_id, $type = 'blade'){
 
-    public function showAttendance(Request $request)
-    {
+        if($type === "blade"){
+            return view('reports.monthly', [
+                'report' => $report,
+                'month' => $month,
+                'teacher_id' => $teacher_id
+            ]);
+        }elseif($type === 'print'){
+            return view('reports.print', [
+                'report' => $report,
+                'month' => $month,
+                'teacher_id' => $teacher_id
+            ]);
+        }
 
-        $year = $request->filled('year') ? $request->year : now()->year;
-
-        $month = $request->filled('month') ? $request->month : now()->month;
-
-        $date = "{$year}-{$month}-01";
-
-        $attendanceData = $this->attendance($date);
-
-
-        return view('welcome', compact('attendanceData', 'year', 'date'));
     }
 }
