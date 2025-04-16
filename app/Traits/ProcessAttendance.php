@@ -2,6 +2,7 @@
 
 namespace App\Traits;
 
+use App\Models\AcademicHoliday;
 use DateTime;
 use App\Models\OfficeHoliday;
 use Illuminate\Support\Carbon;
@@ -49,6 +50,13 @@ trait ProcessAttendance
                     ->whereMonth('end_date', $month);
             })->get();
 
+        $academic_holidays = AcademicHoliday::whereYear('start_date', $year)
+            ->whereMonth('start_date', $month)
+            ->orWhere(function ($query) use ($year, $month) {
+                $query->whereYear('end_date', $year)
+                    ->whereMonth('end_date', $month);
+            })->get();
+
 
 
         foreach ($attendanceData as $teacherId => $attendanceRecords) {
@@ -86,6 +94,20 @@ trait ProcessAttendance
 
                     if ($currentDate >= $holidayStart && $currentDate <= $holidayEnd) {
                         $monthlyAttendance[$day] = $holiday->holiday_type ?? 'H';
+                    }
+                }
+            }
+
+            //academic_holidays as 'AC'
+            foreach ($academic_holidays as $holiday) {
+                $holidayStart = new DateTime(max("$year-$month-01", $holiday->start_date));
+                $holidayEnd = new DateTime(min("$year-$month-$daysInMonth", $holiday->end_date));
+
+                foreach (range(1, $daysInMonth) as $day) {
+                    $currentDate = new DateTime("$year-$month-" . str_pad($day, 2, '0', STR_PAD_LEFT));
+
+                    if ($currentDate >= $holidayStart && $currentDate <= $holidayEnd) {
+                        $monthlyAttendance[$day] = $holiday->title ?? 'AC';
                     }
                 }
             }

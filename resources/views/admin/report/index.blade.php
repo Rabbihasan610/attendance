@@ -112,6 +112,11 @@
                                                             {{ $ofhd->title }}({{ $ofhd->holiday_type }})
                                                         </option>
                                                         @endforeach
+                                                        @foreach (\App\Models\AcademicHoliday::where('status', 'Approved')->get() as $ahd)
+                                                        <option value="{{ $ahd->title }}" {{ $record->attendance === $ahd->title ? 'selected' : '' }}>
+                                                            {{ $ahd->title }}
+                                                        </option>
+                                                        @endforeach
                                                     </select>
                                                 </td>
                                                 <td>
