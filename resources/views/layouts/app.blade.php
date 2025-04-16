@@ -171,6 +171,8 @@
     <script src="//cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <!--app-->
     <script src="{{ asset('adminfile') }}/js/app.js"></script>
+
+    @stack('js')
 </body>
 
 </html>

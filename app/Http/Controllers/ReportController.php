@@ -19,6 +19,7 @@ class ReportController extends Controller
         $year = $request->filled('year') ? $request->year : now()->year;
         $month = $request->filled('month') ? $request->month : now()->month;
         $date = "{$year}-{$month}-01";
+
         $teacher_id = $request->filled('teacher_id') ? $request->teacher_id : null;
 
         $attendanceData = TeacherAttendance::query()
@@ -26,7 +27,7 @@ class ReportController extends Controller
             ->whereYear('date', $year)
             ->whereMonth('date', $month)
             ->with('teacher')
-            ->when($teacher_id, fn($q) => $q->where('teacher_id', $teacher_id))
+            ->where('teacher_id', $teacher_id)
             ->get()
             ->groupBy('teacher_id');
 

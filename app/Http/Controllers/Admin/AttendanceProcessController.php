@@ -16,9 +16,9 @@ class AttendanceProcessController extends Controller
     public function index(Request $request){
 
 
-        $year = $request->filled('year') ? $request->year : now()->year;
+        $year = $request->year;
 
-        $month = $request->filled('month') ? $request->month : now()->month;
+        $month = $request->month;
 
         $date = "{$year}-{$month}-01";
 
@@ -28,10 +28,30 @@ class AttendanceProcessController extends Controller
 
         $attendanceData = $this->attendance($date, $teacher_id);
 
+        $this->processAttendanceData($attendanceData, $year, $month);
+
 
         return view('admin.attendance-process.index', compact('attendanceData', 'year', 'date', 'month','teacher_id'));
 
     }
+
+    public function print(Request $request){
+
+        $year = $request->year;
+
+        $month = $request->month;
+
+        $date = "{$year}-{$month}-01";
+
+
+        $teacher_id = $request->filled('teacher_id') ? $request->teacher_id : null;
+
+
+        $attendanceData = $this->attendance($date, $teacher_id);
+
+        return view('admin.attendance-process.print', compact('attendanceData', 'date', 'year', 'month', 'teacher_id'));
+    }
+
 
     public function store(Request $request)
     {
@@ -74,5 +94,4 @@ class AttendanceProcessController extends Controller
             return redirect()->back()->with('error', 'Error processing attendance: ' . $e->getMessage());
         }
     }
-
 }

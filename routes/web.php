@@ -20,6 +20,7 @@ Route::middleware('auth')->group(function () {
 
 
     Route::get('attendance-process',[AttendanceProcessController::class, 'index'])->name('attendance-process.index');
+    Route::get('attendance-process-print', [AttendanceProcessController::class, 'print'])->name('attendance-process.print');
 
     Route::post('attendance-process-store', [AttendanceProcessController::class, 'store'])->name('attendance-process.store');
 

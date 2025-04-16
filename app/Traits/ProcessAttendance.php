@@ -2,10 +2,11 @@
 
 namespace App\Traits;
 
-use App\Models\AcademicHoliday;
 use DateTime;
 use App\Models\OfficeHoliday;
 use Illuminate\Support\Carbon;
+use App\Models\AcademicHoliday;
+use App\Models\TeacherAttendance;
 use App\Models\TeacherLeaveApplication;
 use App\Models\TeacherMachineAttendance;
 
@@ -166,4 +167,36 @@ trait ProcessAttendance
         }
     }
 
+
+    public function processAttendanceData($data, $year, $month)
+    {
+        $processedData = [];
+
+        foreach ($data as $entry) {
+            $teacherId = $entry['id'];
+            $monthlyAttendance = $entry['attendance'];
+
+            foreach ($monthlyAttendance as $day => $status) {
+                $date = sprintf('%04d-%02d-%02d', $year, $month, $day);
+
+                $processedData[] = [
+                    'teacher_id' => $teacherId,
+                    'date' => $date,
+                    'attendance' => $status,
+                ];
+
+                TeacherAttendance::updateOrCreate(
+                    [
+                        'teacher_id' => $teacherId,
+                        'date' => $date,
+                    ],
+                    [
+                        'attendance' => $status,
+                    ]
+                );
+            }
+        }
+
+        return $processedData;
+    }
 }
